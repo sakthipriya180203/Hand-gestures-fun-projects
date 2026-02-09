@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Air Canvas</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #1e3a8a 0%, #7c3aed 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 15px;
+            color: white;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 15px;
+        }
+
+        h1 {
+            font-size: 2.2em;
+            margin-bottom: 5px;
+            text-shadow: 2px 2px 8px rgba(0,0,0,0.4);
+        }
+
+        .subtitle {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+
+        .main-container {
+            position: relative;
+            width: 100%;
+            max-width: 1280px;
+            aspect-ratio: 16/9;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 25px 80px rgba(0,0,0,0.5);
+        }
+
+        #videoCanvas, #drawCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        #videoCanvas {
+            z-index: 1;
+        }
+
+        #drawCanvas {
+            z-index: 2;
+            cursor: none;
+        }
+
+        .video-element {
+            display: none;
+        }
+
+        .cursor {
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border: 3px solid white;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+            transition: all 0.08s ease;
+            z-index: 10;
+            box-shadow: 0 0 15px rgba(0,0,0,0.6);
+        }
+
+        .cursor.drawing {
+            transform: translate(-50%, -50%) scale(1.3);
+            box-shadow: 0 0 20px currentColor;
+        }
+
+        .status-bar {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            background: rgba(0,0,0,0.75);
+            backdrop-filter: blur(12px);
+            padding: 12px 18px;
+            border-radius: 12px;
+            z-index: 5;
+            min-width: 200px;
+        }
+
+        .status-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+            font-size: 0.9em;
+        }
+
+        .status-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .status-label {
+            color: #aaa;
+            font-weight: 500;
+        }
+
+        .status-value {
+            font-weight: 700;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 6px;
+            background: rgba(255,255,255,0.1);
+        }
+
+        .status-value.active {
+            background: rgba(74, 222, 128, 0.3);
+            color: #4ade80;
+        }
+
+        .color-indicator {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid white;
+            box-shadow: 0 0 8px rgba(0,0,0,0.4);
+        }
+
+        .controls-panel {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: rgba(0,0,0,0.75);
+            backdrop-filter: blur(12px);
+            padding: 15px;
+            border-radius: 12px;
+            z-index: 5;
+        }
+
+        .control-btn {
+            background: rgba(255,255,255,0.1);
+            border: 2px solid rgba(255,255,255,0.3);
+            color: white;
+            padding: 10px 18px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .control-btn:last-child {
+            margin-bottom: 0;
+        }
+
+        .control-btn:hover {
+            background: rgba(255,255,255,0.2);
+            border-color: rgba(255,255,255,0.5);
+            transform: translateY(-2px);
+        }
+
+        .control-btn:active {
+            transform: translateY(0);
+        }
+
+        .gesture-guide {
+            position: absolute;
+            bottom: 15px;
+            left: 15px;
+            right: 15px;
+            background: rgba(0,0,0,0.75);
+            backdrop-filter: blur(12px);
+            padding: 12px;
+            border-radius: 12px;
+            z-index: 5;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 8px;
+            font-size: 0.85em;
+        }
+
+        .gesture-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 6px;
+        }
+
+        .gesture-icon {
+            font-size: 1.3em;
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 20;
+            background: rgba(0,0,0,0.85);
+            padding: 35px;
+            border-radius: 15px;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(255,255,255,0.2);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: rgba(239, 68, 68, 0.95);
+            color: white;
+            padding: 18px 28px;
+            border-radius: 12px;
+            margin-top: 20px;
+            display: none;
+            max-width: 600px;
+        }
+
+        .shape-preview {
+            position: absolute;
+            pointer-events: none;
+            z-index: 3;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>✨ Advanced Air Canvas</h1>
+        <div class="subtitle">Draw in the air with hand gestures</div>
+    </div>
+
+    <div class="main-container">
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <div>Initializing hand tracking...</div>
+        </div>
+        
+        <video id="video" class="video-element" autoplay playsinline></video>
+        <canvas id="videoCanvas"></canvas>
+        <canvas id="drawCanvas"></canvas>
+        <div class="cursor" id="cursor"></div>
+
+        <div class="status-bar">
+            <div class="status-row">
+                <span class="status-label">Mode:</span>
+                <span class="status-value" id="mode">Idle</span>
+            </div>
+            <div class="status-row">
+                <span class="status-label">Shape:</span>
+                <span class="status-value" id="shape">Line</span>
+            </div>
+            <div class="status-row">
+                <span class="status-label">Color:</span>
+                <div class="color-indicator" id="colorIndicator"></div>
+            </div>
+            <div class="status-row">
+                <span class="status-label">Hand:</span>
+                <span class="status-value" id="handStatus">Not detected</span>
+            </div>
+        </div>
+
+        <div class="controls-panel">
+            <button class="control-btn" id="clearBtn">
+                <span>🗑️</span>
+                <span>Clear Canvas</span>
+            </button>
+            <button class="control-btn" id="saveBtn">
+                <span>💾</span>
+                <span>Save Drawing</span>
+            </button>
+        </div>
+
+        <div class="gesture-guide">
+            <div class="gesture-item">
+                <span class="gesture-icon">☝️</span>
+                <span>Draw Line</span>
+            </div>
+            <div class="gesture-item">
+                <span class="gesture-icon">✌️</span>
+                <span>Draw Rectangle</span>
+            </div>
+            <div class="gesture-item">
+                <span class="gesture-icon">🤟</span>
+                <span>Draw Circle</span>
+            </div>
+            <div class="gesture-item">
+                <span class="gesture-icon">👍</span>
+                <span>Red Color</span>
+            </div>
+            <div class="gesture-item">
+                <span class="gesture-icon">🤙</span>
+                <span>Blue Color</span>
+            </div>
+            <div class="gesture-item">
+                <span class="gesture-icon">🤘</span>
+                <span>Green Color</span>
+            </div>
+            <div class="gesture-item">
+                <span class="gesture-icon">✋</span>
+                <span>Move Only</span>
+            </div>
+            <div class="gesture-item">
+                <span class="gesture-icon">✊</span>
+                <span>Clear All</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="error" id="error"></div>
+
+    <script>
+        // Canvas and video setup
+        const video = document.getElementById('video');
+        const videoCanvas = document.getElementById('videoCanvas');
+        const drawCanvas = document.getElementById('drawCanvas');
+        const videoCtx = videoCanvas.getContext('2d');
+        const drawCtx = drawCanvas.getContext('2d');
+        const cursor = document.getElementById('cursor');
+        const loading = document.getElementById('loading');
+        
+        // UI elements
+        const modeElement = document.getElementById('mode');
+        const shapeElement = document.getElementById('shape');
+        const colorIndicator = document.getElementById('colorIndicator');
+        const handStatusElement = document.getElementById('handStatus');
+        const errorElement = document.getElementById('error');
+        const clearBtn = document.getElementById('clearBtn');
+        const saveBtn = document.getElementById('saveBtn');
+
+        // State variables
+        let currentColor = '#ff4444';
+        let currentShape = 'line';
+        let drawMode = 'idle';
+        let isDrawing = false;
+        let smoothedX = null;
+        let smoothedY = null;
+        let lastX = null;
+        let lastY = null;
+        let shapeStartX = null;
+        let shapeStartY = null;
+        let hands = null;
+        let camera = null;
+
+        // Smoothing factor (0-1, higher = smoother but more lag)
+        const SMOOTHING = 0.4;
+
+        // Color map
+        const colors = {
+            red: '#ff4444',
+            blue: '#4444ff',
+            green: '#44ff44'
+        };
+
+        // Initialize color indicator
+        colorIndicator.style.background = currentColor;
+
+        // Button handlers
+        clearBtn.addEventListener('click', clearDrawCanvas);
+        saveBtn.addEventListener('click', saveDrawing);
+
+        // Initialize webcam
+        async function initCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        width: 1280, 
+                        height: 720,
+                        facingMode: 'user'
+                    }
+                });
+                video.srcObject = stream;
+                
+                video.onloadedmetadata = () => {
+                    videoCanvas.width = video.videoWidth;
+                    videoCanvas.height = video.videoHeight;
+                    drawCanvas.width = video.videoWidth;
+                    drawCanvas.height = video.videoHeight;
+                    
+                    initHands();
+                    renderVideoFrame();
+                };
+            } catch (err) {
+                showError('Camera access denied. Please allow camera permissions and reload.');
+                console.error('Camera error:', err);
+            }
+        }
+
+        // Render video to canvas continuously
+        function renderVideoFrame() {
+            videoCtx.save();
+            videoCtx.scale(-1, 1);
+            videoCtx.drawImage(video, -videoCanvas.width, 0, videoCanvas.width, videoCanvas.height);
+            videoCtx.restore();
+            requestAnimationFrame(renderVideoFrame);
+        }
+
+        // Initialize MediaPipe Hands
+        function initHands() {
+            hands = new Hands({
+                locateFile: (file) => {
+                    return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+                }
+            });
+
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.75,
+                minTrackingConfidence: 0.75
+            });
+
+            hands.onResults(onResults);
+
+            camera = new Camera(video, {
+                onFrame: async () => {
+                    await hands.send({ image: video });
+                },
+                width: 1280,
+                height: 720
+            });
+
+            camera.start();
+            loading.style.display = 'none';
+        }
+
+        // Process hand detection results
+        function onResults(results) {
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+                handStatusElement.textContent = 'Detected';
+                handStatusElement.classList.add('active');
+                
+                processGesture(landmarks);
+            } else {
+                handStatusElement.textContent = 'Not detected';
+                handStatusElement.classList.remove('active');
+                resetDrawingState();
+                cursor.style.display = 'none';
+            }
+        }
+
+        // Smooth cursor position using exponential moving average
+        function smoothPosition(targetX, targetY) {
+            if (smoothedX === null || smoothedY === null) {
+                smoothedX = targetX;
+                smoothedY = targetY;
+            } else {
+                smoothedX = smoothedX * SMOOTHING + targetX * (1 - SMOOTHING);
+                smoothedY = smoothedY * SMOOTHING + targetY * (1 - SMOOTHING);
+            }
+            return { x: smoothedX, y: smoothedY };
+        }
+
+        // Advanced gesture recognition
+        function processGesture(landmarks) {
+            const indexTip = landmarks[8];
+            const indexPip = landmarks[6];
+            const middleTip = landmarks[12];
+            const middlePip = landmarks[10];
+            const ringTip = landmarks[16];
+            const ringPip = landmarks[14];
+            const pinkyTip = landmarks[20];
+            const thumbTip = landmarks[4];
+            const thumbIp = landmarks[3];
+            const wrist = landmarks[0];
+
+            // Convert to canvas coordinates (mirrored)
+            const rawX = (1 - indexTip.x) * drawCanvas.width;
+            const rawY = indexTip.y * drawCanvas.height;
+            
+            const { x, y } = smoothPosition(rawX, rawY);
+
+            // Show and position cursor
+            cursor.style.display = 'block';
+            cursor.style.left = x + 'px';
+            cursor.style.top = y + 'px';
+            cursor.style.borderColor = currentColor;
+
+            // Finger extension detection
+            const indexUp = indexTip.y < indexPip.y;
+            const middleUp = middleTip.y < middlePip.y;
+            const ringUp = ringTip.y < ringPip.y;
+            const pinkyUp = pinkyTip.y < landmarks[18].y;
+            const thumbUp = thumbTip.x > thumbIp.x;
+
+            // Count extended fingers
+            const extendedCount = [indexUp, middleUp, ringUp, pinkyUp, thumbUp].filter(Boolean).length;
+
+            // Gesture: Fist (Clear canvas)
+            if (extendedCount === 0) {
+                clearDrawCanvas();
+                updateMode('Cleared', 'clear');
+                cursor.classList.remove('drawing');
+                resetDrawingState();
+                return;
+            }
+
+            // Gesture: Thumb + Index (Red)
+            if (thumbUp && indexUp && !middleUp && !ringUp && !pinkyUp) {
+                setColor('red');
+                updateMode('Color: Red', 'idle');
+                cursor.classList.remove('drawing');
+                resetDrawingState();
+                return;
+            }
+
+            // Gesture: Thumb + Middle (Blue)
+            if (thumbUp && !indexUp && middleUp && !ringUp && !pinkyUp) {
+                setColor('blue');
+                updateMode('Color: Blue', 'idle');
+                cursor.classList.remove('drawing');
+                resetDrawingState();
+                return;
+            }
+
+            // Gesture: Thumb + Ring (Green)
+            if (thumbUp && !indexUp && !middleUp && ringUp && !pinkyUp) {
+                setColor('green');
+                updateMode('Color: Green', 'idle');
+                cursor.classList.remove('drawing');
+                resetDrawingState();
+                return;
+            }
+
+            // Gesture: Open palm (Move only)
+            if (extendedCount === 5) {
+                updateMode('Moving', 'idle');
+                setShape('Line');
+                cursor.classList.remove('drawing');
+                resetDrawingState();
+                return;
+            }
+
+            // Gesture: Index only (Draw line)
+            if (indexUp && !middleUp && !ringUp && !thumbUp) {
+                setShape('Line');
+                drawLine(x, y);
+                return;
+            }
+
+            // Gesture: Index + Middle (Draw rectangle)
+            if (indexUp && middleUp && !ringUp && !thumbUp) {
+                setShape('Rectangle');
+                drawRectangle(x, y);
+                return;
+            }
+
+            // Gesture: Index + Middle + Ring (Draw circle)
+            if (indexUp && middleUp && ringUp && !thumbUp) {
+                setShape('Circle');
+                drawCircle(x, y);
+                return;
+            }
+
+            // Default: Idle
+            updateMode('Idle', 'idle');
+            cursor.classList.remove('drawing');
+            resetDrawingState();
+        }
+
+        // Draw line
+        function drawLine(x, y) {
+            cursor.classList.add('drawing');
+            updateMode('Drawing', 'active');
+            
+            if (lastX !== null && lastY !== null) {
+                drawCtx.strokeStyle = currentColor;
+                drawCtx.lineWidth = 4;
+                drawCtx.lineCap = 'round';
+                drawCtx.lineJoin = 'round';
+                
+                drawCtx.beginPath();
+                drawCtx.moveTo(lastX, lastY);
+                drawCtx.lineTo(x, y);
+                drawCtx.stroke();
+            }
+            
+            lastX = x;
+            lastY = y;
+        }
+
+        // Draw rectangle
+        function drawRectangle(x, y) {
+            cursor.classList.add('drawing');
+            updateMode('Drawing Rect', 'active');
+            
+            if (shapeStartX === null) {
+                shapeStartX = x;
+                shapeStartY = y;
+            } else {
+                // Clear and redraw to show preview
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = drawCanvas.width;
+                tempCanvas.height = drawCanvas.height;
+                const tempCtx = tempCanvas.getContext('2d');
+                tempCtx.drawImage(drawCanvas, 0, 0);
+                
+                const width = x - shapeStartX;
+                const height = y - shapeStartY;
+                
+                drawCtx.strokeStyle = currentColor;
+                drawCtx.lineWidth = 4;
+                drawCtx.strokeRect(shapeStartX, shapeStartY, width, height);
+            }
+            
+            lastX = x;
+            lastY = y;
+        }
+
+        // Draw circle
+        function drawCircle(x, y) {
+            cursor.classList.add('drawing');
+            updateMode('Drawing Circle', 'active');
+            
+            if (shapeStartX === null) {
+                shapeStartX = x;
+                shapeStartY = y;
+            } else {
+                const radius = Math.sqrt(
+                    Math.pow(x - shapeStartX, 2) + 
+                    Math.pow(y - shapeStartY, 2)
+                );
+                
+                drawCtx.strokeStyle = currentColor;
+                drawCtx.lineWidth = 4;
+                drawCtx.beginPath();
+                drawCtx.arc(shapeStartX, shapeStartY, radius, 0, 2 * Math.PI);
+                drawCtx.stroke();
+            }
+            
+            lastX = x;
+            lastY = y;
+        }
+
+        // Set color
+        function setColor(colorName) {
+            currentColor = colors[colorName];
+            colorIndicator.style.background = currentColor;
+        }
+
+        // Set shape
+        function setShape(shapeName) {
+            currentShape = shapeName;
+            shapeElement.textContent = shapeName;
+        }
+
+        // Clear drawing canvas
+        function clearDrawCanvas() {
+            drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+        }
+
+        // Reset drawing state
+        function resetDrawingState() {
+            lastX = null;
+            lastY = null;
+            shapeStartX = null;
+            shapeStartY = null;
+        }
+
+        // Update mode display
+        function updateMode(text, className) {
+            modeElement.textContent = text;
+            modeElement.className = 'status-value ' + (className || '');
+        }
+
+        // Save drawing
+        function saveDrawing() {
+            const link = document.createElement('a');
+            link.download = `air-canvas-${Date.now()}.png`;
+            link.href = drawCanvas.toDataURL('image/png');
+            link.click();
+            
+            updateMode('Saved!', 'active');
+            setTimeout(() => updateMode('Idle', 'idle'), 2000);
+        }
+
+        // Show error
+        function showError(message) {
+            errorElement.textContent = message;
+            errorElement.style.display = 'block';
+            loading.style.display = 'none';
+        }
+
+        // Start application
+        initCamera();
+    </script>
+</body>
+</html>

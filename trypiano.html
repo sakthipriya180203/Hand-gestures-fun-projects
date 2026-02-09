@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Gesture Piano 🎹</title>
+<style>
+  body {
+    margin: 0;
+    background: #0a0a0a;
+    color: white;
+    font-family: Arial, sans-serif;
+    text-align: center;
+  }
+
+  #container {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  video, canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+  }
+
+  #piano {
+    position: absolute;
+    bottom: 0;
+    width: 100%;
+    height: 180px;
+    display: flex;
+  }
+
+  .key {
+    flex: 1;
+    border: 1px solid black;
+    background: white;
+    color: black;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    font-size: 20px;
+    padding-bottom: 10px;
+    transition: 0.1s;
+  }
+
+  .key.active {
+    background: gold;
+  }
+
+  #info {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: rgba(0,0,0,0.6);
+    padding: 10px;
+    border-radius: 10px;
+  }
+</style>
+</head>
+
+<body>
+<div id="container">
+  <video id="video" autoplay></video>
+  <canvas id="overlay"></canvas>
+
+  <div id="info">Show your hands ✋ and tap keys in the air</div>
+
+  <div id="piano">
+    <div class="key" data-note="C">C</div>
+    <div class="key" data-note="D">D</div>
+    <div class="key" data-note="E">E</div>
+    <div class="key" data-note="F">F</div>
+    <div class="key" data-note="G">G</div>
+    <div class="key" data-note="A">A</div>
+    <div class="key" data-note="B">B</div>
+    <div class="key" data-note="C2">C</div>
+  </div>
+</div>
+
+<!-- MediaPipe Hands -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+<script>
+const video = document.getElementById("video");
+const canvas = document.getElementById("overlay");
+const ctx = canvas.getContext("2d");
+const keys = document.querySelectorAll(".key");
+
+// Resize canvas
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resize();
+window.onresize = resize;
+
+// Webcam
+navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+  video.srcObject = stream;
+});
+
+// Piano Sounds (simple oscillator)
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+const notes = {
+  C: 261.63,
+  D: 293.66,
+  E: 329.63,
+  F: 349.23,
+  G: 392.00,
+  A: 440.00,
+  B: 493.88,
+  C2: 523.25
+};
+
+function playNote(note) {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.frequency.value = notes[note];
+  osc.type = "sine";
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.5);
+  osc.stop(audioCtx.currentTime + 0.5);
+}
+
+// Cooldown to avoid spam
+let lastPlay = {};
+function canPlay(note) {
+  const now = Date.now();
+  if (!lastPlay[note] || now - lastPlay[note] > 400) {
+    lastPlay[note] = now;
+    return true;
+  }
+  return false;
+}
+
+// MediaPipe Hands
+const hands = new Hands({
+  locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+});
+hands.setOptions({
+  maxNumHands: 2,
+  modelComplexity: 1,
+  minDetectionConfidence: 0.7,
+  minTrackingConfidence: 0.7
+});
+
+hands.onResults(results => {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!results.multiHandLandmarks) return;
+
+  results.multiHandLandmarks.forEach(hand => {
+    drawConnectors(ctx, hand, HAND_CONNECTIONS, {color: "cyan"});
+    drawLandmarks(ctx, hand, {color: "red", radius: 4});
+
+    // Finger tips indexes (excluding thumbs)
+    const tips = [8, 12, 16, 20]; // index, middle, ring, pinky
+
+    tips.forEach((tipIndex, i) => {
+      const tip = hand[tipIndex];
+      const x = tip.x * canvas.width;
+      const y = tip.y * canvas.height;
+
+      // Map x to piano keys
+      const keyIndex = Math.floor((x / canvas.width) * 8);
+      if (keyIndex < 0 || keyIndex > 7) return;
+
+      const note = Object.keys(notes)[keyIndex];
+      const key = keys[keyIndex];
+
+      // Trigger when finger is near bottom (piano area)
+      if (y > canvas.height - 200) {
+        if (canPlay(note)) {
+          playNote(note);
+          key.classList.add("active");
+          setTimeout(() => key.classList.remove("active"), 200);
+        }
+      }
+    });
+  });
+});
+
+// Camera loop
+const camera = new Camera(video, {
+  onFrame: async () => {
+    await hands.send({ image: video });
+  },
+  width: 1280,
+  height: 720
+});
+camera.start();
+</script>
+</body>
+</html>
