@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🥕 Carrot Juice Hand Gesture Game 🍹</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #fff5e6 0%, #ffe6cc 100%);
+            min-height: 100vh; padding: 20px;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 { text-align:center; color:#ff8c00; font-size:2.5em; margin-bottom:10px; text-shadow:2px 2px 4px rgba(0,0,0,0.1); }
+        .subtitle { text-align:center; color:#cc7000; font-size:1.2em; margin-bottom:30px; }
+        .game-area { display:grid; grid-template-columns:1fr 1fr 1fr; gap:20px; margin-bottom:30px; }
+        .panel { background:white; border-radius:20px; padding:25px; box-shadow:0 10px 30px rgba(0,0,0,0.1); }
+        .panel h2 { color:#333; margin-bottom:20px; font-size:1.3em; }
+
+        /* Camera */
+        #videoContainer {
+            position:relative; width:100%; aspect-ratio:4/3;
+            background:#1a1a1a; border-radius:15px; overflow:hidden;
+            display:flex; align-items:center; justify-content:center;
+        }
+        #video { display:none; }
+        #canvas { width:100%; height:100%; transform:scaleX(-1); display:none; }
+        #startBtn {
+            background:#ff8c00; color:white; border:none;
+            padding:15px 40px; border-radius:10px; font-size:1.2em;
+            font-weight:bold; cursor:pointer; transition:all 0.3s;
+            box-shadow:0 5px 15px rgba(255,140,0,0.3);
+        }
+        #startBtn:hover { background:#ff9933; transform:translateY(-2px); }
+        .overlay-info { position:absolute; top:15px; left:15px; right:15px; display:flex; flex-direction:column; gap:10px; pointer-events:none; }
+        .info-badge {
+            background:rgba(255,140,0,0.95); color:white;
+            padding:8px 16px; border-radius:10px; font-weight:bold;
+            box-shadow:0 3px 10px rgba(0,0,0,0.3); display:inline-block; width:fit-content; font-size:.95em;
+        }
+        #holdRing { position:absolute; bottom:15px; right:15px; width:60px; height:60px; display:none; }
+        #holdRing svg { transform:rotate(-90deg); }
+        #holdArc { fill:none; stroke:#ff8c00; stroke-width:6; stroke-linecap:round; stroke-dasharray:157; stroke-dashoffset:157; transition:stroke-dashoffset 0.1s linear; }
+        #holdLabel { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:.65em; font-weight:bold; color:white; }
+
+        /* Progress */
+        .progress-bar { width:100%; height:12px; background:#ffe6cc; border-radius:10px; overflow:hidden; margin-bottom:20px; }
+        .progress-fill { height:100%; background:linear-gradient(90deg,#ff8c00,#ff9933); transition:width 0.5s ease; border-radius:10px; }
+        #messageBox {
+            background:linear-gradient(135deg,#ffe6cc,#fff5e6);
+            padding:20px; border-radius:15px; min-height:110px;
+            display:flex; align-items:center; justify-content:center;
+            text-align:center; font-size:1.1em; color:#333; line-height:1.6; margin-bottom:16px;
+        }
+        .stats { text-align:center; color:#666; margin-bottom:16px; font-size:1em; }
+        .victory { text-align:center; animation:bounce 1s infinite; }
+        .victory-emoji { font-size:4em; margin-bottom:10px; }
+        .victory-text { font-size:1.8em; font-weight:bold; color:#ff8c00; }
+        @keyframes bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-15px)} }
+
+        /* Scene */
+        #graphicsDisplay {
+            width:100%; height:380px; border-radius:15px;
+            position:relative; overflow:hidden;
+            background:linear-gradient(to bottom,#87CEEB,#c8e6c9 60%,#8B4513 100%);
+            transition: background 0.8s ease;
+        }
+        .scene { position:absolute; width:100%; height:100%; display:flex; align-items:center; justify-content:center; flex-direction:column; }
+
+        @keyframes floatUD   { 0%,100%{transform:translateY(0)}   50%{transform:translateY(-16px)} }
+        @keyframes spinFull  { to{transform:rotate(360deg)} }
+        @keyframes fallDrop  { 0%{transform:translateY(-40px);opacity:0} 50%{opacity:1} 100%{transform:translateY(60px);opacity:0} }
+        @keyframes pourAnim  { 0%{transform:translateY(-25px) scale(.5);opacity:0} 50%{opacity:1} 100%{transform:translateY(25px);opacity:0} }
+        @keyframes tiltAnim  { 0%,100%{transform:rotate(0deg)} 50%{transform:rotate(20deg)} }
+        @keyframes sparkle   { 0%,100%{opacity:0;transform:scale(0)} 50%{opacity:1;transform:scale(1)} }
+        @keyframes shimmer   { 0%,100%{opacity:.7} 50%{opacity:1} }
+        @keyframes popIn     { 0%{transform:scale(0)} 80%{transform:scale(1.2)} 100%{transform:scale(1)} }
+
+        /* Gesture guide */
+        .gesture-guide { background:white; border-radius:20px; padding:25px; box-shadow:0 10px 30px rgba(0,0,0,0.1); }
+        .gesture-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(185px,1fr)); gap:14px; }
+        .gesture-card { background:#f8f9fa; border:2px solid #ffe6cc; border-radius:15px; padding:14px; display:flex; align-items:center; gap:12px; transition:all .3s; }
+        .gesture-card.active-step { border-color:#ff8c00; background:#fff5e6; box-shadow:0 0 0 3px rgba(255,140,0,.25); }
+        .g-emoji { font-size:1.9em; }
+        .g-label { font-weight:bold; color:#333; margin-bottom:3px; font-size:.95em; }
+        .g-desc  { font-size:.8em; color:#666; }
+        .note { text-align:center; color:#666; margin-top:18px; font-size:.88em; }
+
+        @media(max-width:1100px){ .game-area{ grid-template-columns:1fr 1fr; } }
+        @media(max-width:700px){  .game-area{ grid-template-columns:1fr; } h1{font-size:1.8em;} }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🥕 Virtual Carrot Juice Maker 🍹</h1>
+    <p class="subtitle">Use real hand gestures detected by your camera to make delicious carrot juice!</p>
+
+    <div class="game-area">
+        <!-- Camera Panel -->
+        <div class="panel">
+            <h2>📹 Live Hand Tracking</h2>
+            <div id="videoContainer">
+                <button id="startBtn">🎥 Start Hand Tracking</button>
+                <video id="video" autoplay playsinline></video>
+                <canvas id="canvas"></canvas>
+                <div class="overlay-info">
+                    <div class="info-badge" id="gestureDisplay">Waiting for hands…</div>
+                    <div class="info-badge" id="fingerCount" style="display:none;">Fingers: 0</div>
+                </div>
+                <div id="holdRing">
+                    <svg viewBox="0 0 60 60" width="60" height="60">
+                        <circle cx="30" cy="30" r="25" fill="rgba(0,0,0,0.45)"/>
+                        <circle id="holdArc" cx="30" cy="30" r="25"/>
+                    </svg>
+                    <div id="holdLabel">Hold</div>
+                </div>
+            </div>
+            <div id="errorMsg" style="color:red;margin-top:12px;text-align:center;font-size:.9em;"></div>
+        </div>
+
+        <!-- Scene Panel -->
+        <div class="panel">
+            <h2>🎨 Action Scene</h2>
+            <div id="graphicsDisplay">
+                <div class="scene" id="sceneContainer"></div>
+            </div>
+        </div>
+
+        <!-- Status Panel -->
+        <div class="panel">
+            <h2>🎮 Game Status</h2>
+            <div class="progress-bar"><div class="progress-fill" id="progressBar" style="width:0%"></div></div>
+            <div id="messageBox">🕹️ Welcome! Use hand gestures to make fresh carrot juice. Pick your carrots to begin! 🥕✨</div>
+            <div class="stats" id="stats">Step 0 of 7 | Carrots: 0</div>
+            <div id="victoryDiv" style="display:none;">
+                <div class="victory">
+                    <div class="victory-emoji">🏆</div>
+                    <div class="victory-text">Victory!</div>
+                </div>
+                <button id="replayBtn" style="background:#ff8c00; color:white; border:none; padding:12px 32px; border-radius:10px; font-size:1.1em; font-weight:bold; cursor:pointer; margin-top:16px; transition:all 0.3s; box-shadow:0 4px 12px rgba(255,140,0,0.3);" onmouseover="this.style.background='#ff9933'; this.style.transform='translateY(-2px)';" onmouseout="this.style.background='#ff8c00'; this.style.transform='translateY(0)';">🔄 Play Again</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Gesture Guide -->
+    <div class="gesture-guide">
+        <h2>✋ Gesture Reference Guide</h2>
+        <div class="gesture-grid" id="gestureGrid">
+            <div class="gesture-card" data-step="0">
+                <div class="g-emoji">✌️</div>
+                <div><div class="g-label">Pick 2 Carrots</div><div class="g-desc">Show 2 fingers (peace sign)</div></div>
+            </div>
+            <div class="gesture-card" data-step="0">
+                <div class="g-emoji">🤟</div>
+                <div><div class="g-label">Pick 3 Carrots</div><div class="g-desc">Show 3 fingers</div></div>
+            </div>
+            <div class="gesture-card" data-step="1">
+                <div class="g-emoji">👋</div>
+                <div><div class="g-label">Wash</div><div class="g-desc">Open palm — 5 fingers</div></div>
+            </div>
+            <div class="gesture-card" data-step="2">
+                <div class="g-emoji">👊</div>
+                <div><div class="g-label">Blend</div><div class="g-desc">Closed fist — 0 fingers</div></div>
+            </div>
+            <div class="gesture-card" data-step="3">
+                <div class="g-emoji">🤙</div>
+                <div><div class="g-label">Add Sugar</div><div class="g-desc">Shaka / hang-loose sign</div></div>
+            </div>
+            <div class="gesture-card" data-step="4">
+                <div class="g-emoji">🤲</div>
+                <div><div class="g-label">Add Milk</div><div class="g-desc">Show 4 fingers</div></div>
+            </div>
+           <div class="gesture-card" data-step="5">
+                <div class="g-emoji">👍</div>
+                <div><div class="g-label">Present</div><div class="g-desc">Thumbs up</div></div>
+            </div>
+        </div>
+        <p class="note">💡 Hold each gesture steady for 1.5 seconds to activate it. Powered by MediaPipe Hands AI.</p>
+    </div>
+</div>
+
+<script>
+// ── Audio Context & BGM System ──────────────────────────────────────────────
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let audioCtx = null;
+let bgmOscillators = [];
+let bgmGains = [];
+let bgmRunning = false;
+
+function initAudio() {
+    if (!audioCtx) audioCtx = new AudioCtx();
+}
+
+function startBGM() {
+    if (bgmRunning) return;
+    if (!audioCtx) initAudio();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    bgmRunning = true;
+    playBGMSequence();
+}
+
+function stopBGM() {
+    bgmRunning = false;
+    bgmOscillators.forEach(osc => {
+        try { osc.stop(audioCtx.currentTime + 0.5); } catch(e) {}
+    });
+    bgmGains.forEach(g => {
+        g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+    });
+    bgmOscillators = [];
+    bgmGains = [];
+}
+
+function playNote(freq, duration, gain = 0.08, delay = 0) {
+    if (!bgmRunning) return;
+    setTimeout(() => {
+        if (!bgmRunning) return;
+        const osc = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        osc.frequency.value = freq;
+        osc.type = 'sine';
+        gainNode.gain.setValueAtTime(gain, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration * 0.95);
+        osc.start(audioCtx.currentTime);
+        osc.stop(audioCtx.currentTime + duration);
+        bgmOscillators.push(osc);
+        bgmGains.push(gainNode);
+    }, delay * 1000);
+}
+
+function playBGMSequence() {
+    if (!bgmRunning) return;
+    
+    // Pleasant fruity theme with rhythm pattern
+    // Main melody: C major scale based, sweet and uplifting
+    const sequence = [
+        // Phrase 1: Intro (4 notes)
+        {freq: 262, dur: 0.3, gain: 0.08},  // C4
+        {freq: 294, dur: 0.3, gain: 0.08},  // D4
+        {freq: 330, dur: 0.4, gain: 0.08},  // E4
+        {freq: 349, dur: 0.5, gain: 0.09},  // F4
+        // Phrase 2: Rise (4 notes)
+        {freq: 392, dur: 0.3, gain: 0.08},  // G4
+        {freq: 440, dur: 0.3, gain: 0.08},  // A4
+        {freq: 494, dur: 0.4, gain: 0.08},  // B4
+        {freq: 523, dur: 0.6, gain: 0.09},  // C5
+        // Phrase 3: Descend (4 notes)
+        {freq: 494, dur: 0.3, gain: 0.08},  // B4
+        {freq: 440, dur: 0.3, gain: 0.08},  // A4
+        {freq: 392, dur: 0.3, gain: 0.08},  // G4
+        {freq: 349, dur: 0.5, gain: 0.08},  // F4
+        // Phrase 4: Return (4 notes)
+        {freq: 330, dur: 0.3, gain: 0.08},  // E4
+        {freq: 349, dur: 0.3, gain: 0.08},  // F4
+        {freq: 392, dur: 0.4, gain: 0.08},  // G4
+        {freq: 330, dur: 0.8, gain: 0.10},  // E4 (long hold)
+    ];
+
+    let totalTime = 0;
+    for (let i = 0; i < sequence.length; i++) {
+        const note = sequence[i];
+        playNote(note.freq, note.dur, note.gain, totalTime);
+        totalTime += note.dur;
+    }
+
+    // Loop the BGM
+    if (bgmRunning) {
+        setTimeout(() => playBGMSequence(), totalTime * 1000 + 500);
+    }
+}
+
+// ── Sound Effects ───────────────────────────────────────────────────────────
+function playSound(freq, duration = 0.1, type = 'sine', gain = 0.2) {
+    if (!audioCtx) initAudio();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    
+    const osc = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    osc.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    
+    osc.frequency.value = freq;
+    osc.type = type;
+    gainNode.gain.setValueAtTime(gain, audioCtx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+    
+    osc.start(audioCtx.currentTime);
+    osc.stop(audioCtx.currentTime + duration);
+}
+
+function playPickSound() { playSound(700, 0.15); setTimeout(() => playSound(900, 0.12), 80); }
+function playWashSound() { playSound(500, 0.15); setTimeout(() => playSound(550, 0.15), 100); }
+function playBlendSound() { for (let i = 0; i < 5; i++) setTimeout(() => playSound(600 + i*50, 0.08), i*70); }
+function playSugarSound() { playSound(800, 0.12); setTimeout(() => playSound(1000, 0.12), 100); setTimeout(() => playSound(1200, 0.12), 200); }
+function playMilkSound() { playSound(400, 0.2); setTimeout(() => playSound(450, 0.15), 150); }
+function playSuccessSound() { const f = [523, 659, 784, 1047]; f.forEach((freq, i) => setTimeout(() => playSound(freq, 0.2), i * 150)); }
+function playVictorySound() { const n = [523, 659, 784, 784, 1047, 784, 659, 523]; n.forEach((freq, i) => setTimeout(() => playSound(freq, 0.25), i * 200)); }
+
+// ── State ───────────────────────────────────────────────────────────────────
+let gs = { step:0, carrotCount:0, completed:false };
+let hands, mediaCam;
+const video  = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
+
+// Hold tracking
+const HOLD_MS = 1500, COOL_MS = 2000;
+let curGesture = null, holdStart = 0, lastFired = 0, holdTriggered = false;
+
+// ── Scene Builder ───────────────────────────────────────────────────────────
+const BG = [
+    'linear-gradient(to bottom,#87CEEB 0%,#b3e5fc 50%,#8B7355 50%,#5D4037 100%)',
+    'linear-gradient(to bottom,#b3e5fc 0%,#e1f5fe 55%,#a5d6a7 55%,#6d4c41 100%)',
+    'linear-gradient(to bottom,#b2dfdb 0%,#e0f2f1 55%,#c5e1a5 55%,#7cb342 100%)',
+    'linear-gradient(to bottom,#ffe0b2 0%,#fff8e1 65%,#ffe082 100%)',
+    'linear-gradient(to bottom,#fce4ec 0%,#fff9c4 65%,#ffe082 100%)',
+    'linear-gradient(to bottom,#e3f2fd 0%,#f3e5f5 65%,#f8bbd0 100%)',
+    'linear-gradient(to bottom,#f3e5f5 0%,#ede7f6 65%,#ffe0b2 100%)',
+    'linear-gradient(to bottom,#1a237e 0%,#283593 45%,#e65100 100%)',
+];
+
+function buildScene(step, n) {
+    document.getElementById('graphicsDisplay').style.background = BG[step] ?? BG[0];
+    const s = document.getElementById('sceneContainer');
+    const repeat = (e,c) => (e+' ').repeat(c).trim();
+
+    const html = [
+        /* 0 – Farm */
+        `<div style="position:absolute;bottom:0;width:100%;height:38%;background:linear-gradient(#8B4513,#5D4037);border-radius:0 0 15px 15px;"></div>
+         <div style="position:relative;top:-15px;text-align:center;">
+           <div style="font-size:1.5em;color:#fff;text-shadow:1px 1px 3px #000;margin-bottom:10px;">🌾 Carrot Farm 🌾</div>
+           <div style="font-size:3em;animation:floatUD 2s ease-in-out infinite;">🥕 🥕 🥕 🥕 🥕</div>
+           <div style="margin-top:14px;background:rgba(0,0,0,.4);color:#fff;padding:6px 18px;border-radius:20px;font-size:.9em;">Show ✌️ (2) or 🤟 (3) to pick</div>
+         </div>`,
+
+        /* 1 – Wash */
+        `<div style="text-align:center;">
+           <div style="font-size:1.4em;color:#01579b;font-weight:bold;margin-bottom:10px;">Wash the Carrots! 💧</div>
+           <div style="font-size:3em;animation:floatUD 2s ease-in-out infinite;">${repeat('🥕',n)}</div>
+           <div style="display:flex;justify-content:center;gap:14px;margin-top:14px;">
+             <span style="font-size:2.2em;animation:fallDrop 1.4s ease-in infinite;">💧</span>
+             <span style="font-size:2.2em;animation:fallDrop 1.4s .4s ease-in infinite;">💧</span>
+             <span style="font-size:2.2em;animation:fallDrop 1.4s .8s ease-in infinite;">💧</span>
+           </div>
+           <div style="margin-top:16px;background:rgba(255,255,255,.6);padding:6px 18px;border-radius:20px;font-size:.88em;">Open palm 👋 to wash</div>
+         </div>`,
+
+        /* 2 – Blend */
+        `<div style="text-align:center;">
+           <div style="font-size:1.4em;color:#2e7d32;font-weight:bold;margin-bottom:8px;">Blend It Up! 🌪️</div>
+           <div style="font-size:2.5em;">${repeat('🥕',n)}</div>
+           <div style="font-size:5em;margin:8px 0;animation:spinFull 1.2s linear infinite;">🌀</div>
+           <div style="background:rgba(255,255,255,.6);padding:6px 18px;border-radius:20px;font-size:.88em;">Make a fist 👊 to blend</div>
+         </div>`,
+
+        /* 3 – Sugar */
+        `<div style="text-align:center;">
+           <div style="font-size:1.4em;color:#e65100;font-weight:bold;margin-bottom:8px;">Add Sugar! 🍬</div>
+           <div style="font-size:5em;animation:shimmer 1.5s ease-in-out infinite;">🧃</div>
+           <div style="font-size:2em;margin-top:10px;animation:pourAnim 1.2s ease-in-out infinite;">✨ 🍬 ✨</div>
+           <div style="margin-top:12px;background:rgba(255,255,255,.6);padding:6px 18px;border-radius:20px;font-size:.88em;">Shaka sign 🤙 for sugar</div>
+         </div>`,
+
+        /* 4 – Milk */
+        `<div style="text-align:center;">
+           <div style="font-size:1.4em;color:#880e4f;font-weight:bold;margin-bottom:8px;">Pour the Milk! 🥛</div>
+           <div style="font-size:5em;animation:shimmer 1.5s ease-in-out infinite;">🧃</div>
+           <div style="font-size:4em;margin-top:8px;animation:tiltAnim 2s ease-in-out infinite;">🥛</div>
+           <div style="margin-top:12px;background:rgba(255,255,255,.6);padding:6px 18px;border-radius:20px;font-size:.88em;">Show 4 fingers 🤲 for milk</div>
+         </div>`,
+
+        /* 5 – Present */
+        `<div style="text-align:center;">
+           <div style="font-size:1.4em;color:#bf360c;font-weight:bold;margin-bottom:8px;">Ready to Present! 🎁</div>
+           <div style="font-size:7em;animation:floatUD 2s ease-in-out infinite;">🍹</div>
+           <div style="font-size:1.5em;color:#ff8c00;margin-top:8px;">Looks amazing! 😍</div>
+           <div style="margin-top:10px;background:rgba(255,255,255,.6);padding:6px 18px;border-radius:20px;font-size:.88em;">Thumbs up 👍 to present</div>
+         </div>`,
+
+        /* 6 – Victory */
+        `<div style="text-align:center;position:relative;width:100%;">
+           <span style="position:absolute;top:8%;left:8%;font-size:2em;animation:sparkle 1s ease-in-out infinite;">✨</span>
+           <span style="position:absolute;top:8%;right:8%;font-size:2em;animation:sparkle 1s .3s ease-in-out infinite;">🌟</span>
+           <span style="position:absolute;bottom:4%;left:18%;font-size:2em;animation:sparkle 1s .6s ease-in-out infinite;">✨</span>
+           <span style="position:absolute;bottom:4%;right:18%;font-size:2em;animation:sparkle 1s .9s ease-in-out infinite;">🌟</span>
+           <div style="font-size:1.7em;color:#fff;text-shadow:1px 1px 4px #000;margin-bottom:6px;">🎊 PERFECT! 🎊</div>
+           <div style="font-size:7em;animation:popIn .6s ease-out forwards;">🍹</div>
+           <div style="font-size:1.3em;color:#ffe082;margin-top:6px;text-shadow:1px 1px 3px #000;">Delicious ${n}-Carrot Juice!</div>
+           <div style="font-size:.9em;color:rgba(255,255,255,.8);margin-top:4px;">Rich • Creamy • Refreshing</div>
+         </div>`,
+    ];
+
+    s.innerHTML = html[step] ?? html[0];
+}
+
+// ── UI ──────────────────────────────────────────────────────────────────────
+function setMsg(m) { document.getElementById('messageBox').textContent = m; }
+
+function updateUI() {
+    document.getElementById('progressBar').style.width = (gs.step/6*100)+'%';
+    document.getElementById('stats').textContent = `Step ${gs.step} of 6 | Carrots: ${gs.carrotCount}`;
+    document.getElementById('victoryDiv').style.display = gs.completed ? 'block' : 'none';
+    buildScene(gs.step, gs.carrotCount);
+    document.querySelectorAll('.gesture-card').forEach(c => {
+        c.classList.toggle('active-step', parseInt(c.dataset.step) === gs.step);
+    });
+}
+
+function updateHoldRing(pct) {
+    const ring = document.getElementById('holdRing');
+    if (pct <= 0) { ring.style.display='none'; return; }
+    ring.style.display = 'block';
+    document.getElementById('holdArc').style.strokeDashoffset = 157*(1-pct);
+    document.getElementById('holdLabel').textContent = Math.round(pct*100)+'%';
+}
+
+// ── Gesture Detection ───────────────────────────────────────────────────────
+function countFingers(lm) {
+    const tips=[8,12,16,20], pips=[6,10,14,18];
+    let c = (lm[4].x < lm[3].x) ? 1 : 0;
+    for (let i=0;i<4;i++) if (lm[tips[i]].y < lm[pips[i]].y) c++;
+    return c;
+}
+
+function isThumbsUp(lm) {
+    const n = countFingers(lm);
+    if (n !== 1) return false;
+    return lm[4].y < lm[2].y; // thumb tip well above base
+}
+
+function isShaka(lm) {
+    // thumb + pinky up, index + middle + ring folded
+    const thumbUp  = lm[4].x < lm[3].x;
+    const pinkyUp  = lm[20].y < lm[18].y;
+    const idxDown  = lm[8].y  > lm[6].y;
+    const midDown  = lm[12].y > lm[10].y;
+    const ringDown = lm[16].y > lm[14].y;
+    return thumbUp && pinkyUp && idxDown && midDown && ringDown;
+}
+
+function detectGesture(lm) {
+    if (isThumbsUp(lm)) return 'PRESENT';
+    if (isShaka(lm))    return 'ADD_SUGAR';
+    const map = {0:'BLEND',1:'POUR',2:'PICK_2_CARROTS',3:'PICK_3_CARROTS',4:'ADD_MILK',5:'WASH'};
+    return map[countFingers(lm)] ?? null;
+}
+
+// ── Game Logic ──────────────────────────────────────────────────────────────
+function fireGesture(g) {
+    const {step, completed} = gs;
+    if (completed) {
+        gs = {step:0, carrotCount:0, completed:false};
+        setMsg('🕹️ Use hand gestures to make fresh carrot juice. Pick your carrots to begin! 🥕✨');
+        startBGM();
+        updateUI(); return;
+    }
+    const wrong = hint => setMsg('⚠️ Wrong gesture! ' + hint);
+    if (step===0) {
+        if      (g==='PICK_2_CARROTS') { gs.step=1; gs.carrotCount=2; playPickSound(); setMsg('🥕🥕 Great! 2 fresh carrots picked! Now wash them!'); }
+        else if (g==='PICK_3_CARROTS') { gs.step=1; gs.carrotCount=3; playPickSound(); setMsg('🥕🥕🥕 Awesome! 3 juicy carrots! Now wash them!'); }
+        else wrong('Show ✌️ (2 fingers) or 🤟 (3 fingers) to pick carrots!');
+    } else if (step===1) {
+        if (g==='WASH') { gs.step=2; playWashSound(); setMsg('💧 Splish splash! Squeaky clean! Time to blend!'); }
+        else wrong('Open your palm 👋 to wash the carrots!');
+    } else if (step===2) {
+        if (g==='BLEND') { gs.step=3; playBlendSound(); setMsg('🌪️ Whirrrr! Beautifully blended! Add some sugar!'); }
+        else wrong('Make a fist 👊 to blend!');
+    } else if (step===3) {
+        if (g==='ADD_SUGAR') { gs.step=4; playSugarSound(); setMsg('✨ Sweet! Sugar added! Now pour in some milk!'); }
+        else wrong('Try the Shaka / hang-loose sign 🤙 for sugar!');
+    } else if (step===4) {
+        if (g==='ADD_MILK') { gs.step=5; playMilkSound(); setMsg('🥛 Creamy goodness! Now pour it into a glass!'); }
+        else wrong('Show 4 fingers 🤲 to add milk!');
+    } else if (step===5) {
+        if (g==='PRESENT') {
+            gs.step=6; gs.completed=true;
+            stopBGM();
+            playVictorySound();
+            setMsg(`🎉 SUCCESS! A glorious ${gs.carrotCount}-carrot juice — rich orange colour, silky texture, perfectly sweet! 🏆 Click replay to play again!`);
+        } else wrong('Give a thumbs up 👍 to present!');
+    }
+    updateUI();
+}
+
+// ── MediaPipe Callback ──────────────────────────────────────────────────────
+function onResults(res) {
+    ctx.save();
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(res.image,0,0,canvas.width,canvas.height);
+
+    if (res.multiHandLandmarks && res.multiHandLandmarks.length > 0) {
+        for (const lm of res.multiHandLandmarks) {
+            drawConnectors(ctx, lm, HAND_CONNECTIONS, {color:'#00FF00', lineWidth:2});
+            drawLandmarks(ctx, lm, {color:'#FF4444', lineWidth:1, radius:3});
+
+            const g = detectGesture(lm);
+            document.getElementById('gestureDisplay').textContent = g ? g.replace(/_/g,' ') : 'Detecting…';
+            document.getElementById('fingerCount').style.display = 'block';
+            document.getElementById('fingerCount').textContent = 'Fingers: ' + countFingers(lm);
+
+            const now = Date.now();
+            if (g && g === curGesture) {
+                const pct = Math.min((now - holdStart) / HOLD_MS, 1);
+                updateHoldRing(pct);
+                if (pct >= 1 && !holdTriggered && (now - lastFired > COOL_MS)) {
+                    holdTriggered = true;
+                    lastFired = now;
+                    fireGesture(g);
+                }
+            } else {
+                curGesture = g;
+                holdStart = now;
+                holdTriggered = false;
+                updateHoldRing(0);
+            }
+        }
+    } else {
+        document.getElementById('gestureDisplay').textContent = 'No hand detected';
+        document.getElementById('fingerCount').style.display = 'none';
+        curGesture = null;
+        holdTriggered = false;
+        updateHoldRing(0);
+    }
+    ctx.restore();
+}
+
+// ── Start Camera ────────────────────────────────────────────────────────────
+document.getElementById('startBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('startBtn');
+    btn.textContent = '⏳ Loading MediaPipe…';
+    btn.disabled = true;
+    try {
+        hands = new Hands({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+        hands.setOptions({ maxNumHands:1, modelComplexity:1, minDetectionConfidence:.65, minTrackingConfidence:.6 });
+        hands.onResults(onResults);
+
+        mediaCam = new Camera(video, {
+            onFrame: async () => { await hands.send({ image: video }); },
+            width: 640, height: 480
+        });
+        await mediaCam.start();
+
+        canvas.width  = 640;
+        canvas.height = 480;
+        canvas.style.display = 'block';
+        btn.style.display = 'none';
+        document.getElementById('errorMsg').textContent = '';
+        
+        // Play startup sound and start BGM
+        playSuccessSound();
+        setTimeout(() => startBGM(), 1000);
+    } catch(e) {
+        document.getElementById('errorMsg').textContent = 'Error: ' + e.message;
+        btn.textContent = '🎥 Try Again';
+        btn.disabled = false;
+    }
+});
+
+// ── Replay Button ───────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+    const replayBtn = document.getElementById('replayBtn');
+    if (replayBtn) {
+        replayBtn.addEventListener('click', () => {
+            gs = {step:0, carrotCount:0, completed:false};
+            setMsg('🕹️ Use hand gestures to make fresh carrot juice. Pick your carrots to begin! 🥕✨');
+            startBGM();
+            updateUI();
+        });
+    }
+});
+
+// ── Init ────────────────────────────────────────────────────────────────────
+updateUI();
+</script>
+</body>
+</html>
