@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🥕 Veggie Chop Challenge</title>
+<script type="module">
+import { HandLandmarker, FilesetResolver }
+  from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs";
+window._HandLandmarker  = HandLandmarker;
+window._FilesetResolver = FilesetResolver;
+window._mpReady = true;
+window.dispatchEvent(new Event('mp-ready'));
+</script>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --orange:#ff6b2b;--yellow:#ffe066;--green:#2ecc71;
+  --dgreen:#1a7a45;--board:#c8873a;--bdk:#9b6429;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Nunito',sans-serif;background:#12121f;min-height:100vh;overflow-x:hidden}
+.bg{position:fixed;inset:0;z-index:0;background:linear-gradient(150deg,#12121f,#1a2040,#0d2b1a)}
+.bg::after{content:'';position:absolute;inset:0;
+  background:radial-gradient(ellipse at 15% 85%,rgba(46,204,113,.07),transparent 55%),
+             radial-gradient(ellipse at 85% 15%,rgba(255,107,43,.07),transparent 55%)}
+.fv{position:fixed;font-size:1.4rem;animation:fvUp linear infinite;opacity:.12;pointer-events:none;z-index:0}
+@keyframes fvUp{0%{transform:translateY(110vh) rotate(0deg);opacity:0}10%{opacity:.12}90%{opacity:.12}100%{transform:translateY(-10vh) rotate(360deg);opacity:0}}
+.wrap{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;padding:18px 16px;gap:18px;min-height:100vh}
+h1{font-family:'Fredoka One',cursive;font-size:2.5rem;color:var(--yellow);
+  text-shadow:3px 3px 0 var(--orange),6px 6px 0 rgba(0,0,0,.3);letter-spacing:2px;text-align:center}
+.sub{color:rgba(255,255,255,.5);font-size:.9rem;text-align:center;margin-top:2px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;width:100%;max-width:1100px}
+@media(max-width:720px){.grid{grid-template-columns:1fr}}
+.panel{background:rgba(255,255,255,.05);border:2px solid rgba(255,255,255,.1);
+  border-radius:22px;padding:22px;display:flex;flex-direction:column;gap:14px;backdrop-filter:blur(8px)}
+
+/* steps */
+.steps{display:flex;align-items:center;justify-content:center;gap:6px}
+.step{display:flex;flex-direction:column;align-items:center;gap:5px;opacity:.28;transition:all .4s}
+.step.active{opacity:1;transform:scale(1.08)}
+.step.done{opacity:.65}
+.sico{width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,.08);
+  border:2px solid rgba(255,255,255,.14);display:flex;align-items:center;justify-content:center;font-size:1.5rem;transition:all .4s}
+.step.active .sico{background:var(--orange);border-color:var(--yellow);
+  box-shadow:0 0 22px rgba(255,107,43,.65);animation:sglow 1s ease-in-out infinite}
+.step.done .sico{background:var(--green);border-color:var(--dgreen)}
+@keyframes sglow{0%,100%{box-shadow:0 0 22px rgba(255,107,43,.65)}50%{box-shadow:0 0 38px rgba(255,107,43,1)}}
+.slbl{font-size:.58rem;color:rgba(255,255,255,.65);font-weight:700;text-transform:uppercase;letter-spacing:.4px;text-align:center}
+.sline{width:18px;height:2px;background:rgba(255,255,255,.14);margin-bottom:18px;flex-shrink:0}
+
+/* ── scene canvas ── */
+#sceneCanvas{width:100%;border-radius:16px;border:2px solid rgba(255,255,255,.08);display:block;cursor:default}
+
+/* plate reveal overlay */
+.plate-reveal{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.85);opacity:0;pointer-events:none;transition:opacity .5s}
+.plate-reveal.show{opacity:1;pointer-events:all}
+.plate-card{background:linear-gradient(145deg,#1e2d1e,#162516);
+  border:3px solid var(--green);border-radius:28px;padding:36px 40px;
+  text-align:center;max-width:420px;width:90%;
+  box-shadow:0 0 60px rgba(46,204,113,.3),0 20px 60px rgba(0,0,0,.6)}
+.plate-card canvas{border-radius:50%;box-shadow:0 8px 30px rgba(0,0,0,.5);margin:16px auto;display:block}
+.plate-card h2{font-family:'Fredoka One',cursive;font-size:2rem;color:var(--yellow);margin-bottom:6px}
+.plate-card p{color:rgba(255,255,255,.7);font-size:.95rem;margin-bottom:20px}
+.plate-close{background:linear-gradient(135deg,var(--green),var(--dgreen));color:#fff;
+  border:none;border-radius:12px;padding:12px 32px;font-family:'Fredoka One',cursive;
+  font-size:1.1rem;cursor:pointer;transition:all .2s;
+  box-shadow:0 4px 0 rgba(0,0,0,.3)}
+.plate-close:hover{transform:translateY(-2px)}
+
+/* message */
+.msgbox{background:rgba(255,255,255,.07);border:2px solid rgba(255,255,255,.12);
+  border-radius:13px;padding:13px 16px;color:#fff;font-size:.95rem;
+  font-weight:700;text-align:center;min-height:52px;display:flex;align-items:center;justify-content:center;transition:all .3s}
+.msgbox.warn{border-color:#e74c3c;background:rgba(231,76,60,.15);color:#ff8a8a}
+.msgbox.info{border-color:var(--green);background:rgba(46,204,113,.1);color:#7effc5}
+.msgbox.chop{border-color:var(--yellow);background:rgba(255,224,102,.1);color:var(--yellow)}
+
+/* chips */
+.chips{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;min-height:26px}
+.chip{background:var(--orange);color:#fff;font-family:'Fredoka One',cursive;
+  font-size:.72rem;padding:3px 9px;border-radius:18px;animation:chipPop .3s ease}
+@keyframes chipPop{0%{transform:scale(0)}70%{transform:scale(1.2)}100%{transform:scale(1)}}
+
+/* camera panel */
+.cam-title{font-family:'Fredoka One',cursive;color:var(--yellow);font-size:1.2rem;text-align:center}
+.vid-wrap{position:relative;border-radius:15px;overflow:hidden;background:#000;aspect-ratio:4/3}
+#rawVideo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none;transform:scaleX(-1)}
+#liveCanvas{position:absolute;inset:0;width:100%;height:100%}
+.cam-ph{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:rgba(255,255,255,.38)}
+.cam-ph span:first-child{font-size:2.8rem}
+.cam-ph span:last-child{font-size:.82rem}
+#gestureLabel{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);
+  background:rgba(0,0,0,.75);color:var(--yellow);font-family:'Fredoka One',cursive;
+  font-size:1.05rem;padding:6px 16px;border-radius:20px;white-space:nowrap;
+  pointer-events:none;opacity:0;transition:opacity .2s;z-index:5}
+#gestureLabel.show{opacity:1}
+.sbar{display:flex;align-items:center;gap:10px;background:rgba(0,0,0,.3);
+  border-radius:9px;padding:9px 14px;font-size:.82rem;color:rgba(255,255,255,.65)}
+.sdot{width:10px;height:10px;border-radius:50%;background:#444;flex-shrink:0;transition:background .3s}
+.sdot.on{background:var(--green);box-shadow:0 0 8px var(--green)}
+.sdot.det{background:var(--yellow);box-shadow:0 0 8px var(--yellow);animation:blink .75s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+.cbar-wrap{background:rgba(0,0,0,.3);border-radius:7px;overflow:hidden;height:7px}
+.cbar{height:100%;background:linear-gradient(90deg,var(--green),var(--yellow));width:0%;transition:width .18s;border-radius:7px}
+.startbtn{background:linear-gradient(135deg,var(--orange),#e74c3c);color:#fff;
+  border:none;border-radius:13px;padding:15px;font-family:'Fredoka One',cursive;
+  font-size:1.1rem;cursor:pointer;width:100%;letter-spacing:1px;
+  box-shadow:0 5px 0 rgba(0,0,0,.3),0 8px 18px rgba(255,107,43,.28);transition:all .2s}
+.startbtn:hover{transform:translateY(-2px)}
+.startbtn:active{transform:translateY(2px)}
+.startbtn.stop{background:linear-gradient(135deg,#e74c3c,#c0392b)}
+.startbtn:disabled{opacity:.6;cursor:not-allowed;transform:none}
+.ggrid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.gcard{background:rgba(255,255,255,.05);border:2px solid rgba(255,255,255,.1);
+  border-radius:13px;padding:12px 8px;text-align:center;transition:all .3s;position:relative;overflow:hidden}
+.gcard.lit{border-color:var(--yellow);background:rgba(255,224,102,.12);box-shadow:0 0 16px rgba(255,224,102,.25)}
+.gcard.lit::after{content:'✓';position:absolute;top:5px;right:8px;color:var(--green);font-size:.9rem;font-weight:900}
+.gico{font-size:2.4rem;margin-bottom:4px;display:block}
+.gnm{font-family:'Fredoka One',cursive;font-size:.8rem;color:#fff;display:block}
+.gact{font-size:.67rem;color:rgba(255,255,255,.45);margin-top:1px;display:block}
+</style>
+</head>
+<body>
+<div class="bg"></div>
+<div class="fv" style="left:4%;animation-duration:13s;animation-delay:0s">🥕</div>
+<div class="fv" style="left:17%;animation-duration:9s;animation-delay:2s">🌽</div>
+<div class="fv" style="left:34%;animation-duration:15s;animation-delay:5s">🥒</div>
+<div class="fv" style="left:53%;animation-duration:10s;animation-delay:1s">🧅</div>
+<div class="fv" style="left:68%;animation-duration:12s;animation-delay:3s">🥔</div>
+<div class="fv" style="left:83%;animation-duration:8s;animation-delay:7s">🍅</div>
+<div class="fv" style="left:93%;animation-duration:14s;animation-delay:4s">🥦</div>
+
+<!-- Plate reveal overlay -->
+<div class="plate-reveal" id="plateReveal">
+  <div class="plate-card">
+    <h2 id="plateTitle">🍽️ Perfectly Plated!</h2>
+    <canvas id="plateCanvas" width="260" height="260"></canvas>
+    <p id="plateDesc">Your vegetables are chopped and served!</p>
+    <button class="plate-close" onclick="closePlate()">🔄 Play Again</button>
+  </div>
+</div>
+
+<div class="wrap">
+  <header>
+    <h1>🔪 Veggie Chop Challenge</h1>
+    <p class="sub">Pure hand gesture control — no buttons!</p>
+  </header>
+
+  <div class="grid">
+    <!-- GAME PANEL -->
+    <div class="panel">
+      <div class="steps">
+        <div class="step active" id="s0"><div class="sico">👌</div><div class="slbl">Pinch<br>Pick</div></div>
+        <div class="sline"></div>
+        <div class="step" id="s1"><div class="sico">✋</div><div class="slbl">Palm<br>Place</div></div>
+        <div class="sline"></div>
+        <div class="step" id="s2"><div class="sico">✊</div><div class="slbl">Fist<br>Chop×3</div></div>
+        <div class="sline"></div>
+        <div class="step" id="s3"><div class="sico">✌️</div><div class="slbl">Peace<br>Finish</div></div>
+      </div>
+
+      <!-- Main scene drawn on canvas -->
+      <canvas id="sceneCanvas" height="240"></canvas>
+
+      <div class="chips" id="chips"></div>
+      <div class="msgbox" id="msg">🕹️ Start the camera and show your hand!</div>
+    </div>
+
+    <!-- CAMERA PANEL -->
+    <div class="panel">
+      <div class="cam-title">📷 Live Hand Tracking</div>
+      <div class="vid-wrap">
+        <video id="rawVideo" autoplay playsinline muted></video>
+        <canvas id="liveCanvas"></canvas>
+        <div class="cam-ph" id="camPh"><span>📷</span><span>Click "Start Camera" below</span></div>
+        <div id="gestureLabel">—</div>
+      </div>
+      <div class="sbar">
+        <div class="sdot" id="sdot"></div>
+        <span id="stxt">Camera off</span>
+      </div>
+      <div style="font-size:.72rem;color:rgba(255,255,255,.38)">Hand confidence</div>
+      <div class="cbar-wrap"><div class="cbar" id="cbar"></div></div>
+      <button class="startbtn" id="startBtn" onclick="toggleCam()">📷 Start Camera</button>
+      <div class="ggrid">
+        <div class="gcard" id="gc0"><span class="gico">👌</span><span class="gnm">PINCH</span><span class="gact">Pick Vegetable</span></div>
+        <div class="gcard" id="gc1"><span class="gico">✋</span><span class="gnm">OPEN PALM</span><span class="gact">Place on Board</span></div>
+        <div class="gcard" id="gc2"><span class="gico">✊</span><span class="gnm">FIST</span><span class="gact">Chop!</span></div>
+        <div class="gcard" id="gc3"><span class="gico">✌️</span><span class="gnm">PEACE SIGN</span><span class="gact">Finish</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  VEGETABLE DATA
+// ═══════════════════════════════════════════════════════════
+const VEGS = {
+  '🥕': { name:'Carrot',    color:'#ff7e00', sliceColor:'#ff9a30', innerColor:'#ffe0b0', skin:'#ff6600' },
+  '🥒': { name:'Cucumber',  color:'#4a9b3f', sliceColor:'#6abf5e', innerColor:'#c8f0c0', skin:'#2d6e24' },
+  '🧅': { name:'Onion',     color:'#d4a030', sliceColor:'#e8c060', innerColor:'#fff8e0', skin:'#a07820' },
+  '🍅': { name:'Tomato',    color:'#e03030', sliceColor:'#f05050', innerColor:'#ffe0e0', skin:'#b02020' },
+  '🥔': { name:'Potato',    color:'#c8a060', sliceColor:'#d4b070', innerColor:'#fdf0d0', skin:'#9a7040' },
+  '🌽': { name:'Corn',      color:'#f5c518', sliceColor:'#ffd740', innerColor:'#fff8c0', skin:'#c8a010' },
+  '🥦': { name:'Broccoli',  color:'#2e7d32', sliceColor:'#43a047', innerColor:'#c5e8c5', skin:'#1b5e20' },
+};
+const VEG_KEYS = Object.keys(VEGS);
+
+// ═══════════════════════════════════════════════════════════
+//  GAME STATE
+// ═══════════════════════════════════════════════════════════
+let gs = { picked:false, placed:false, chops:0, veg:null, done:false };
+let knifeY = 0;          // knife animation offset
+let knifeAnim = 0;       // 0–1 chop progress
+let slices = [];         // accumulated slice positions on board
+let vegScale = 1;        // shrinks with each chop
+let vegBob = 0;          // floating bob phase
+
+// ═══════════════════════════════════════════════════════════
+//  SCENE CANVAS
+// ═══════════════════════════════════════════════════════════
+const SC  = document.getElementById('sceneCanvas');
+const ctx = SC.getContext('2d');
+let scW, scH;
+
+function resizeScene(){
+  scW = SC.offsetWidth;
+  scH = 240;
+  SC.width  = scW;
+  SC.height = scH;
+}
+window.addEventListener('resize', resizeScene);
+resizeScene();
+
+// Continuous scene render loop
+function sceneLoop(){
+  requestAnimationFrame(sceneLoop);
+  drawScene();
+  vegBob += 0.04;
+  if(knifeAnim > 0){ knifeAnim = Math.max(0, knifeAnim - 0.07); }
+}
+sceneLoop();
+
+function drawScene(){
+  ctx.clearRect(0,0,scW,scH);
+
+  // ── sky / wall
+  const wall = ctx.createLinearGradient(0,0,0,scH);
+  wall.addColorStop(0,'#2a1a10');
+  wall.addColorStop(1,'#1a0e06');
+  ctx.fillStyle = wall;
+  ctx.fillRect(0,0,scW,scH);
+
+  // ── counter top
+  const counterH = scH * 0.44;
+  const counterY = scH - counterH;
+  ctx.fillStyle = '#3d2508';
+  ctx.fillRect(0, counterY, scW, counterH);
+  ctx.fillStyle = '#4a2e0a';
+  ctx.fillRect(0, counterY, scW, 6);
+
+  // ── shadow on counter
+  const csh = ctx.createLinearGradient(0,counterY,0,counterY+30);
+  csh.addColorStop(0,'rgba(0,0,0,.4)');
+  csh.addColorStop(1,'transparent');
+  ctx.fillStyle = csh;
+  ctx.fillRect(0, counterY, scW, 30);
+
+  const bx = scW/2, by = counterY - 10;
+
+  if(!gs.picked && !gs.placed){
+    // ── Idle: show vegetable floating with glow
+    drawFloatingVeg(scW/2, scH*0.38 + Math.sin(vegBob)*8);
+    drawHint('👌 Pinch to pick!', scH*0.78);
+    return;
+  }
+
+  if(gs.picked && !gs.placed){
+    // ── Picked: veg floats above board position, board not yet visible
+    drawFloatingVeg(scW/2, scH*0.35 + Math.sin(vegBob)*7);
+    drawHint('✋ Open palm to place', scH*0.78);
+    return;
+  }
+
+  // ── Board visible
+  drawBoard(bx, by);
+
+  if(gs.placed){
+    // draw accumulated slices on board
+    drawSlicesOnBoard(bx, by);
+
+    // draw remaining whole veg piece (shrinks)
+    if(!gs.done){
+      drawWholeVegOnBoard(bx, by);
+    }
+
+    // knife
+    drawKnife(bx, by);
+
+    if(gs.chops < 3){
+      drawHint('✊ Make a fist to chop!', scH*0.9);
+    } else if(!gs.done){
+      drawHint('✌️ Peace sign to finish!', scH*0.9);
+    }
+  }
+}
+
+// ── helpers ──────────────────────────────────────────────
+
+function drawBoard(cx, cy){
+  const bw=210, bh=60, r=10;
+  const bx=cx-bw/2, by=cy-bh/2;
+  // shadow
+  ctx.shadowColor='rgba(0,0,0,.5)'; ctx.shadowBlur=14; ctx.shadowOffsetY=6;
+  // body
+  const bg=ctx.createLinearGradient(0,by,0,by+bh);
+  bg.addColorStop(0,'#c8873a'); bg.addColorStop(1,'#9b6429');
+  ctx.fillStyle=bg;
+  roundRect(ctx,bx,by,bw,bh,r);
+  ctx.fill();
+  ctx.shadowColor='transparent'; ctx.shadowBlur=0; ctx.shadowOffsetY=0;
+  // wood grain
+  ctx.save(); ctx.clip(); // clip grain to board
+  roundRect(ctx,bx,by,bw,bh,r); ctx.clip();
+  ctx.strokeStyle='rgba(0,0,0,.07)'; ctx.lineWidth=1;
+  for(let i=0;i<bw;i+=9){
+    ctx.beginPath(); ctx.moveTo(bx+i,by); ctx.lineTo(bx+i,by+bh); ctx.stroke();
+  }
+  ctx.restore();
+  // handle
+  ctx.fillStyle='#9b6429';
+  roundRect(ctx,bx+bw,cy-11,30,22,5); ctx.fill();
+  ctx.fillStyle='#7a4d1e';
+  ctx.fillRect(bx+bw,cy-11,4,22);
+  // top edge highlight
+  ctx.strokeStyle='rgba(255,200,100,.25)'; ctx.lineWidth=2;
+  roundRect(ctx,bx+1,by+1,bw-2,bh-2,r); ctx.stroke();
+}
+
+function drawFloatingVeg(x,y){
+  if(!gs.veg) return;
+  const v = VEGS[gs.veg];
+  // glow
+  const g=ctx.createRadialGradient(x,y,5,x,y,55);
+  g.addColorStop(0,v.color+'55'); g.addColorStop(1,'transparent');
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,55,0,Math.PI*2); ctx.fill();
+  // veg emoji large
+  ctx.font='64px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(gs.veg, x, y);
+}
+
+function drawWholeVegOnBoard(cx, cy){
+  if(!gs.veg) return;
+  const v = VEGS[gs.veg];
+  const sc = vegScale;
+  const vx = cx + 28 * (1 - sc);   // shift right as it shrinks (simulates slicing from left)
+  const vy = cy - 30;
+  ctx.save();
+  ctx.translate(vx, vy);
+  ctx.scale(sc, sc);
+  drawVegShape(v, 0, 0, 34);
+  ctx.restore();
+}
+
+function drawSlicesOnBoard(cx, cy){
+  if(!gs.veg || slices.length===0) return;
+  const v = VEGS[gs.veg];
+  slices.forEach(sl=>{
+    ctx.save();
+    ctx.translate(cx + sl.ox, cy - 30 + sl.oy);
+    ctx.rotate(sl.angle);
+    drawSlice(v, 0, 0, sl.r);
+    ctx.restore();
+  });
+}
+
+function drawVegShape(v, x, y, r){
+  // outer skin
+  ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2);
+  ctx.fillStyle=v.color; ctx.fill();
+  ctx.strokeStyle=v.skin; ctx.lineWidth=3; ctx.stroke();
+  // inner flesh ring
+  ctx.beginPath(); ctx.arc(x,y,r*0.72,0,Math.PI*2);
+  ctx.fillStyle=v.sliceColor; ctx.fill();
+  // core
+  ctx.beginPath(); ctx.arc(x,y,r*0.38,0,Math.PI*2);
+  ctx.fillStyle=v.innerColor; ctx.fill();
+  // seeds / detail
+  for(let i=0;i<5;i++){
+    const a=(i/5)*Math.PI*2;
+    const sx=x+Math.cos(a)*r*0.52, sy=y+Math.sin(a)*r*0.52;
+    ctx.beginPath(); ctx.ellipse(sx,sy,r*0.07,r*0.12,a,0,Math.PI*2);
+    ctx.fillStyle=v.skin+'cc'; ctx.fill();
+  }
+}
+
+function drawSlice(v, x, y, r){
+  // a half-circle slice shape
+  ctx.beginPath();
+  ctx.arc(x,y,r,0,Math.PI);
+  ctx.closePath();
+  ctx.fillStyle=v.sliceColor; ctx.fill();
+  ctx.strokeStyle=v.skin; ctx.lineWidth=2; ctx.stroke();
+  // cut face (flat top)
+  ctx.fillStyle=v.innerColor;
+  ctx.fillRect(x-r, y-2, r*2, 4);
+  // inner detail
+  ctx.beginPath(); ctx.arc(x,y,r*0.5,0,Math.PI); ctx.closePath();
+  ctx.fillStyle=v.innerColor+'aa'; ctx.fill();
+}
+
+function drawKnife(cx, cy){
+  const kx = cx + 30;
+  const restY = cy - 110;
+  const chopY = cy - 36;
+  const ky = restY + (chopY - restY) * easeOut(knifeAnim);
+  ctx.save();
+  ctx.translate(kx, ky);
+  ctx.rotate(Math.PI/4);
+  // blade
+  ctx.beginPath();
+  ctx.moveTo(0,-52); ctx.lineTo(14,0); ctx.lineTo(-6,6); ctx.lineTo(-10,-52);
+  ctx.fillStyle='#d0d8e0'; ctx.fill();
+  ctx.strokeStyle='#a0aab0'; ctx.lineWidth=1.5; ctx.stroke();
+  // shine
+  ctx.beginPath(); ctx.moveTo(-4,-46); ctx.lineTo(8,-6);
+  ctx.strokeStyle='rgba(255,255,255,.6)'; ctx.lineWidth=2; ctx.stroke();
+  // handle
+  ctx.fillStyle='#3e2010';
+  roundRect(ctx,-8,0,18,28,4); ctx.fill();
+  ctx.fillStyle='#8B5E3C';
+  roundRect(ctx,-8,0,18,10,3); ctx.fill();
+  // rivets
+  [8,16,24].forEach(ry=>{
+    ctx.beginPath(); ctx.arc(1,ry,2.5,0,Math.PI*2);
+    ctx.fillStyle='#c0a060'; ctx.fill();
+  });
+  ctx.restore();
+  // flash on impact
+  if(knifeAnim > 0.7){
+    ctx.save();
+    ctx.globalAlpha = (knifeAnim-0.7)/0.3 * 0.4;
+    ctx.fillStyle='#ffffff';
+    ctx.beginPath(); ctx.arc(cx+30, cy-36, 18, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawHint(text, y){
+  ctx.font='bold 13px Nunito,sans-serif';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle='rgba(255,224,102,.55)';
+  ctx.fillText(text, scW/2, y);
+}
+
+function easeOut(t){ return 1-(1-t)*(1-t); }
+
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+  ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y);
+  ctx.closePath();
+}
+
+// ─── Plate canvas drawing ─────────────────────────────────
+function drawPlate(chops, vegKey){
+  const pc = document.getElementById('plateCanvas');
+  const p  = pc.getContext('2d');
+  const W  = pc.width, H = pc.height, cx=W/2, cy=H/2;
+  p.clearRect(0,0,W,H);
+  const v = VEGS[vegKey];
+
+  // plate shadow
+  p.save();
+  p.shadowColor='rgba(0,0,0,.5)'; p.shadowBlur=20; p.shadowOffsetY=8;
+  p.beginPath(); p.ellipse(cx,cy+4,108,20,0,0,Math.PI*2);
+  p.fillStyle='rgba(0,0,0,.3)'; p.fill();
+  p.restore();
+
+  // plate body
+  const pg = p.createRadialGradient(cx-20,cy-20,10,cx,cy,115);
+  pg.addColorStop(0,'#f8f6f0'); pg.addColorStop(0.8,'#ece8e0'); pg.addColorStop(1,'#d8d2c8');
+  p.beginPath(); p.arc(cx,cy,110,0,Math.PI*2);
+  p.fillStyle=pg; p.fill();
+  p.strokeStyle='#c8c0b0'; p.lineWidth=2; p.stroke();
+
+  // inner rim
+  p.beginPath(); p.arc(cx,cy,88,0,Math.PI*2);
+  p.strokeStyle='rgba(180,170,155,.6)'; p.lineWidth=1.5; p.stroke();
+
+  // decorative rim pattern
+  for(let i=0;i<24;i++){
+    const a=(i/24)*Math.PI*2;
+    p.beginPath();
+    p.arc(cx+Math.cos(a)*100, cy+Math.sin(a)*100, 2.5, 0, Math.PI*2);
+    p.fillStyle='rgba(180,170,155,.5)'; p.fill();
+  }
+
+  // arrange slices neatly
+  const totalSlices = Math.min(chops, 8);
+  const radius = 44;
+  for(let i=0;i<totalSlices;i++){
+    const a = (i/totalSlices)*Math.PI*2 - Math.PI/2;
+    const sx = cx + Math.cos(a)*radius;
+    const sy = cy + Math.sin(a)*radius;
+    p.save();
+    p.translate(sx,sy);
+    p.rotate(a + Math.PI/2);
+    drawPlateSlice(p, v, 0, 0, 22);
+    p.restore();
+  }
+
+  // center garnish
+  p.font='28px serif'; p.textAlign='center'; p.textBaseline='middle';
+  p.fillText('🌿', cx, cy);
+
+  // shine
+  const sh = p.createRadialGradient(cx-35,cy-35,5,cx-20,cy-20,60);
+  sh.addColorStop(0,'rgba(255,255,255,.35)'); sh.addColorStop(1,'transparent');
+  p.beginPath(); p.arc(cx,cy,110,0,Math.PI*2);
+  p.fillStyle=sh; p.fill();
+}
+
+function drawPlateSlice(p, v, x, y, r){
+  p.beginPath(); p.arc(x,y,r,0,Math.PI); p.closePath();
+  p.fillStyle=v.sliceColor; p.fill();
+  p.strokeStyle=v.skin; p.lineWidth=1.5; p.stroke();
+  p.fillStyle=v.innerColor;
+  p.fillRect(x-r,y-1.5,r*2,3);
+  p.beginPath(); p.arc(x,y,r*0.45,0,Math.PI); p.closePath();
+  p.fillStyle=v.innerColor+'99'; p.fill();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  GAME LOGIC
+// ═══════════════════════════════════════════════════════════
+const $=id=>document.getElementById(id);
+const msgEl=$('msg'), chipsEl=$('chips');
+
+function setMsg(t,cls=''){msgEl.textContent=t;msgEl.className='msgbox '+cls}
+function setStep(n){
+  for(let i=0;i<4;i++){
+    const e=$('s'+i); e.classList.remove('active','done');
+    if(i<n) e.classList.add('done'); else if(i===n) e.classList.add('active');
+  }
+}
+function litGc(i){
+  for(let k=0;k<4;k++) $('gc'+k).classList.remove('lit');
+  if(i!=null) $('gc'+i).classList.add('lit');
+}
+function addChip(){
+  const c=document.createElement('div'); c.className='chip';
+  c.textContent='🔪 Chop #'+gs.chops; chipsEl.appendChild(c);
+}
+
+function spawnSlice(){
+  // place a new slice to the left of centre on the board
+  const angle = (Math.random()-0.5)*0.5;
+  const ox = -60 + gs.chops*8 + (Math.random()-0.5)*12;
+  const oy = (Math.random()-0.5)*10;
+  slices.push({ox, oy, angle, r: 14+Math.random()*4});
+}
+
+function doGesture(g){
+  if(gs.done) return;
+  switch(g){
+    case 'PICK':
+      if(!gs.picked){
+        gs.veg = VEG_KEYS[Math.floor(Math.random()*VEG_KEYS.length)];
+        gs.picked=true; slices=[]; vegScale=1;
+        setMsg(gs.veg+' '+VEGS[gs.veg].name+' picked! Open palm to place it on the board.','info');
+        setStep(1); litGc(1);
+      } else { setMsg('❌ Already holding a veggie! Open palm to place.','warn'); }
+      break;
+
+    case 'PLACE':
+      if(!gs.picked){ setMsg('⚠️ Pinch to grab a vegetable first!','warn'); litGc(0); }
+      else if(gs.placed){ setMsg('✅ Already on the board — fist to chop!','warn'); }
+      else {
+        gs.placed=true;
+        setMsg('📍 Placed! Make a FIST to chop. You need at least 3 chops.','info');
+        setStep(2); litGc(2);
+      }
+      break;
+
+    case 'CHOP':
+      if(!gs.placed){ setMsg('⚠️ Place the veggie on the board first!','warn'); }
+      else {
+        gs.chops++;
+        vegScale = Math.max(0.35, 1 - gs.chops*0.12);
+        knifeAnim = 1.0;   // trigger knife animation
+        spawnSlice();
+        addChip();
+        setMsg('🔊 *CHOP!* ('+gs.chops+' chop'+(gs.chops>1?'s':'')+')' + (gs.chops>=3?' ✌️ Flash peace to finish!':''),'chop');
+        if(gs.chops>=3){ setStep(3); litGc(3); }
+      }
+      break;
+
+    case 'FINISH':
+      if(gs.chops>=3){
+        gs.done=true;
+        setMsg('🏆 DONE! Beautifully chopped — plating now…','info');
+        setStep(4); litGc(null);
+        setTimeout(()=>showPlate(), 800);
+      } else { setMsg('❌ Need at least 3 chops! You have '+gs.chops+'.','warn'); litGc(2); }
+      break;
+  }
+}
+
+function showPlate(){
+  drawPlate(gs.chops, gs.veg);
+  const v = VEGS[gs.veg];
+  $('plateTitle').textContent='🍽️ '+v.name+' — Plated!';
+  $('plateDesc').textContent = gs.chops+' perfect chops. Beautifully presented!';
+  $('plateReveal').classList.add('show');
+}
+
+function closePlate(){
+  $('plateReveal').classList.remove('show');
+  resetGame();
+}
+
+function resetGame(){
+  gs={picked:false,placed:false,chops:0,veg:null,done:false};
+  slices=[]; vegScale=1; knifeAnim=0;
+  chipsEl.innerHTML='';
+  setStep(0); litGc(0);
+  setMsg('🎮 New round! Pinch to grab a veggie.','');
+}
+
+// ═══════════════════════════════════════════════════════════
+//  HAND TRACKING
+// ═══════════════════════════════════════════════════════════
+let handLandmarker=null, camOn=false, camStream=null, rafCamId=null;
+let lastActTime=0; const COOL=1300;
+const rawVideo=$('rawVideo'), liveCanvas=$('liveCanvas');
+const lCtx=liveCanvas.getContext('2d');
+const camPh=$('camPh'), startBtn=$('startBtn');
+const sdot=$('sdot'), stxt=$('stxt'), cbar=$('cbar');
+const gLabel=$('gestureLabel');
+
+const CONN=[
+  [0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],
+  [5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],
+  [13,17],[0,17],[17,18],[18,19],[19,20]
+];
+
+async function toggleCam(){ if(camOn) stopCam(); else await startCam(); }
+
+async function startCam(){
+  startBtn.disabled=true;
+  stxt.textContent='Loading hand model…'; sdot.className='sdot det';
+  try{
+    await new Promise((res,rej)=>{
+      if(window._mpReady){res();return;}
+      const t=setTimeout(()=>rej(new Error('MediaPipe load timeout')),15000);
+      window.addEventListener('mp-ready',()=>{clearTimeout(t);res();},{once:true});
+    });
+    const HL=window._HandLandmarker, FR=window._FilesetResolver;
+    if(!HL||!FR) throw new Error('MediaPipe classes missing');
+    const vision=await FR.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm');
+    handLandmarker=await HL.createFromOptions(vision,{
+      baseOptions:{
+        modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+        delegate:'GPU'
+      },
+      numHands:1, runningMode:'VIDEO',
+      minHandDetectionConfidence:0.55,
+      minHandPresenceConfidence:0.55,
+      minTrackingConfidence:0.55
+    });
+    camStream=await navigator.mediaDevices.getUserMedia({video:{width:640,height:480,facingMode:'user'}});
+    rawVideo.srcObject=camStream;
+    await new Promise(r=>{rawVideo.onloadedmetadata=r;});
+    rawVideo.play();
+    liveCanvas.width=rawVideo.videoWidth;
+    liveCanvas.height=rawVideo.videoHeight;
+    camOn=true;
+    camPh.style.display='none';
+    startBtn.textContent='🛑 Stop Camera'; startBtn.classList.add('stop');
+    startBtn.disabled=false;
+    sdot.className='sdot on'; stxt.textContent='Camera on — show your hand!';
+    setMsg('🖐️ Ready! Pinch your fingers to grab a veggie.','');
+    litGc(0); camLoop();
+  }catch(e){
+    console.error(e);
+    stxt.textContent='Error: '+e.message;
+    sdot.className='sdot'; startBtn.disabled=false;
+    setMsg('❌ Error: '+e.message,'warn');
+  }
+}
+
+function stopCam(){
+  camOn=false;
+  if(rafCamId) cancelAnimationFrame(rafCamId);
+  if(camStream) camStream.getTracks().forEach(t=>t.stop());
+  rawVideo.srcObject=null;
+  lCtx.clearRect(0,0,liveCanvas.width,liveCanvas.height);
+  camPh.style.display='flex';
+  startBtn.textContent='📷 Start Camera'; startBtn.classList.remove('stop');
+  sdot.className='sdot'; stxt.textContent='Camera off'; cbar.style.width='0%';
+  gLabel.classList.remove('show');
+}
+
+let lastVT=-1;
+function camLoop(){
+  if(!camOn) return;
+  if(rawVideo.readyState>=2 && rawVideo.currentTime!==lastVT){
+    lastVT=rawVideo.currentTime;
+    const res=handLandmarker.detectForVideo(rawVideo, performance.now());
+    // draw mirrored video
+    lCtx.save();
+    lCtx.translate(liveCanvas.width,0); lCtx.scale(-1,1);
+    lCtx.drawImage(rawVideo,0,0,liveCanvas.width,liveCanvas.height);
+    lCtx.restore();
+    if(res.landmarks&&res.landmarks.length>0){
+      const lm=res.landmarks[0];
+      cbar.style.width=((res.handedness?.[0]?.[0]?.score??1)*100)+'%';
+      sdot.className='sdot det'; stxt.textContent='Hand detected!';
+      drawSkeleton(lm);
+      const now=Date.now(), g=classify(lm);
+      showLabel(g);
+      if(g&&now-lastActTime>COOL){ lastActTime=now; doGesture(g); }
+    } else {
+      cbar.style.width='0%';
+      sdot.className='sdot on'; stxt.textContent='No hand — show your hand!';
+      gLabel.classList.remove('show');
+    }
+  }
+  rafCamId=requestAnimationFrame(camLoop);
+}
+
+function drawSkeleton(lm){
+  const W=liveCanvas.width, H=liveCanvas.height;
+  const px=i=>(1-lm[i].x)*W, py=i=>lm[i].y*H;
+  // connections
+  lCtx.strokeStyle='rgba(255,224,102,.85)'; lCtx.lineWidth=3;
+  for(const[a,b] of CONN){
+    lCtx.beginPath(); lCtx.moveTo(px(a),py(a)); lCtx.lineTo(px(b),py(b)); lCtx.stroke();
+  }
+  // joints with colour by finger
+  const fingerColors=['#ff6b2b','#ff9a30','#ffd740','#a0e060','#60d0ff'];
+  const fingerStarts=[0,1,5,9,13,17];
+  lm.forEach((_,i)=>{
+    let col='#fff';
+    for(let f=0;f<5;f++){ if(i>=fingerStarts[f]&&i<fingerStarts[f+1]){col=fingerColors[f];break;} }
+    if(i===0) col='#ff6b2b';
+    lCtx.beginPath(); lCtx.arc(px(i),py(i),i===0?8:5,0,Math.PI*2);
+    lCtx.fillStyle=col; lCtx.fill();
+    lCtx.strokeStyle='rgba(0,0,0,.5)'; lCtx.lineWidth=1.5; lCtx.stroke();
+  });
+}
+
+const GLABELS={PICK:'👌 Pinch — Pick!',PLACE:'✋ Palm — Place!',CHOP:'✊ Fist — Chop!',FINISH:'✌️ Peace — Finish!'};
+function showLabel(g){
+  if(g){gLabel.textContent=GLABELS[g];gLabel.classList.add('show');}
+  else{gLabel.classList.remove('show');}
+}
+
+function classify(lm){
+  const up=(t,p)=>lm[t].y<lm[p].y;
+  const dist=(a,b)=>Math.hypot(lm[a].x-lm[b].x,lm[a].y-lm[b].y);
+  const iUp=up(8,6),mUp=up(12,10),rUp=up(16,14),pUp=up(20,18);
+  const pinch=dist(4,8)/(dist(0,9)||.0001);
+  if(pinch<0.30&&!mUp&&!rUp&&!pUp) return 'PICK';
+  if(!iUp&&!mUp&&!rUp&&!pUp)        return 'CHOP';
+  if(iUp&&mUp&&!rUp&&!pUp)          return 'FINISH';
+  if(iUp&&mUp&&rUp&&pUp)            return 'PLACE';
+  return null;
+}
+
+// Boot
+setStep(0); litGc(0);
+</script>
+</body>
+</html>
